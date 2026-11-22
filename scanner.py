@@ -40,7 +40,9 @@ def fetch(symbols, period):
     if raw is None or len(raw) == 0: return out
     for s in symbols:
         try:
-            df = raw[s + ".NS"][["Open", "High", "Low", "Close"]].dropna()
+            df = raw[s + ".NS"][["Open", "High", "Low", "Close", "Volume"]]
+            df = df.dropna(subset=["Open", "High", "Low", "Close"]).copy()
+            df["Volume"] = df["Volume"].fillna(0)
             df = df[(df.Open > 0) & (df.High > 0) & (df.Close > 0)]
             if len(df): out[s] = df
         except Exception: pass
@@ -49,14 +51,20 @@ def fetch(symbols, period):
 def summarize(df, name):
     return dict(name=name, first_date=d_(df.index[0]), listing=float(df.Open.iloc[0]),
                 max_close=float(df.Close.max()), ath=float(df.High.max()), ath_date=d_(df.High.idxmax()),
-                last=float(df.Close.iloc[-1]), last_date=d_(df.index[-1]))
+                last=float(df.Close.iloc[-1]), last_date=d_(df.index[-1]),
+                prev_close=float(df.Close.iloc[-2]) if len(df) > 1 else None,
+                volume=int(df.Volume.iloc[-1]))
 
 def merge(old, df):
     same = df[[d_(i) == old["last_date"] for i in df.index]]
     if len(same) and abs(same.Close.iloc[0] / old["last"] - 1) > 0.01: return None  # split/bonus suspected
     old["max_close"] = max(old["max_close"], float(df.Close.max()))
     if df.High.max() > old["ath"]: old["ath"] = float(df.High.max()); old["ath_date"] = d_(df.High.idxmax())
-    old["last"] = float(df.Close.iloc[-1]); old["last_date"] = d_(df.index[-1])
+    new_date = d_(df.index[-1])
+    if len(df) >= 2: old["prev_close"] = float(df.Close.iloc[-2])
+    elif new_date > old["last_date"]: old["prev_close"] = old["last"]
+    old["volume"] = int(df.Volume.iloc[-1])
+    old["last"] = float(df.Close.iloc[-1]); old["last_date"] = new_date
     return old
 
 def main():

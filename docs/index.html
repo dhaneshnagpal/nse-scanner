@@ -29,22 +29,24 @@ a{color:var(--acc);text-decoration:none}#st{font-size:12px;color:var(--mut);marg
 <script src="scan.js"></script>
 <script>
 let kind="listing",rows=[],sk="pct",sd=1,meta={},stocks={};const $=id=>document.getElementById(id);
-const COLS={listing:[["symbol","Symbol"],["name","Company"],["first_date","Data from"],["listing","Listing px"],["last","Last"],["pct","% below listing"],["ath","ATH"],["ath_date","ATH date"]],
-ath:[["symbol","Symbol"],["name","Company"],["ath","ATH"],["ath_date","ATH date"],["ath_age_days","ATH age (d)"],["last","Last"],["pct","% below ATH"],["listing","Listing px"]]};
+const COLS={listing:[["symbol","Symbol"],["name","Company"],["first_date","Data from"],["listing","Listing px"],["last","Last"],["chg","% chg (1d)"],["volume","Volume"],["pct","% below listing"],["ath","ATH"],["ath_date","ATH date"]],
+ath:[["symbol","Symbol"],["name","Company"],["ath","ATH"],["ath_date","ATH date"],["ath_age_days","ATH age (d)"],["last","Last"],["chg","% chg (1d)"],["volume","Volume"],["pct","% below ATH"],["listing","Listing px"]]};
 function compute(){rows=runScan(stocks,kind,{min:+$("min").value,max:+$("max").value,basis:$("basis").value,excl:$("excl").checked});render()}
 function render(){
  $("hd").innerHTML=COLS[kind].map(c=>`<th data-c="${c[0]}">${c[1]}${sk==c[0]?(sd>0?" ▲":" ▼"):""}</th>`).join("");
  const q=$("q").value.toLowerCase();
- const r=rows.filter(x=>!q||x.symbol.toLowerCase().includes(q)||(x.name||"").toLowerCase().includes(q)).sort((a,b)=>(a[sk]>b[sk]?1:a[sk]<b[sk]?-1:0)*sd);
+ const r=rows.filter(x=>!q||x.symbol.toLowerCase().includes(q)||(x.name||"").toLowerCase().includes(q)).sort((a,b)=>{const f=x=>x[sk]??-Infinity;return (f(a)>f(b)?1:f(a)<f(b)?-1:0)*sd});
  $("tb").innerHTML=r.map(x=>"<tr>"+COLS[kind].map(c=>{let v=x[c[0]];
   if(c[0]=="symbol")return `<td><a target="_blank" rel="noopener" href="https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(v)}">${v}</a></td>`;
+  if(c[0]=="volume")return `<td>${v==null?"":v.toLocaleString("en-IN")}</td>`;
+  if(c[0]=="chg")return v==null?"<td></td>":`<td style="color:${v>0?"#1a9d4b":v<0?"#d93636":"inherit"}">${v>0?"+":""}${v.toFixed(2)}%</td>`;
   if(typeof v=="number")v=c[0]=="ath_age_days"?v:v.toFixed(2);return `<td>${v??""}</td>`}).join("")+"</tr>").join("");
  $("hd").querySelectorAll("th").forEach(t=>t.onclick=()=>{const c=t.dataset.c;sd=sk==c?-sd:1;sk=c;render()});
  $("st").textContent=`${r.length} matches · ${Object.keys(stocks).length} stocks tracked · latest price date ${meta.latest||"?"} · built ${meta.updated||"?"}`;
 }
 document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));t.classList.add("on");kind=t.dataset.k;
  $("basisw").classList.toggle("hide",kind!="listing");$("exclw").classList.toggle("hide",kind!="ath");sk="pct";sd=1;compute()});
-["min","max","basis","excl"].forEach(i=>$(i).onchange=compute);$("q").oninput=render;
+["basis","excl"].forEach(i=>$(i).onchange=compute);["min","max"].forEach(i=>$(i).oninput=compute);$("q").oninput=render;
 $("csv").onclick=()=>{const h=COLS[kind].map(c=>c[0]);const t=[h.join(",")].concat(rows.map(r=>h.map(k=>JSON.stringify(r[k]??"")).join(","))).join("\n");
  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([t],{type:"text/csv"}));a.download=kind+"_scan.csv";a.click()};
 fetch("stocks.json?t="+Date.now()).then(r=>r.json()).then(j=>{stocks=j.stocks||{};
