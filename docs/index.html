@@ -1,0 +1,55 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NSE Scanner</title>
+<style>
+:root{--bg:#fff;--fg:#1a1a1a;--mut:#666;--line:#e3e3e3;--acc:#0b5fff;--card:#f6f7f9;--warn:#b45309}
+@media(prefers-color-scheme:dark){:root{--bg:#14161a;--fg:#e8e8e8;--mut:#9a9a9a;--line:#2a2d33;--acc:#6ea0ff;--card:#1c1f25;--warn:#fbbf24}}
+body{margin:0;font:14px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+main{max-width:1100px;margin:0 auto;padding:16px}h1{font-size:20px;margin:0 0 4px}.sub{color:var(--mut);font-size:12px}
+.tabs{display:flex;gap:6px;margin:14px 0;border-bottom:1px solid var(--line)}
+.tab{padding:8px 14px;cursor:pointer;border-bottom:2px solid transparent;color:var(--mut)}.tab.on{color:var(--acc);border-color:var(--acc);font-weight:600}
+.bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;background:var(--card);padding:10px 12px;border-radius:8px;margin-bottom:10px}
+input,select,button{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+input[type=number]{width:64px}button{cursor:pointer}.wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:760px}th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{cursor:pointer;color:var(--mut);font-weight:600;user-select:none}th:nth-child(-n+2),td:nth-child(-n+2){text-align:left}
+a{color:var(--acc);text-decoration:none}#st{font-size:12px;color:var(--mut);margin:6px 0}#warn{color:var(--warn);font-size:13px;margin:6px 0}.hide{display:none}
+</style></head><body><main>
+<h1>NSE Scanner</h1><div class="sub">Prices from Yahoo Finance (split-adjusted, not dividend-adjusted). Data refreshes automatically after each NSE close; reload the page for the latest.</div>
+<div class="tabs"><div class="tab on" data-k="listing">Below listing price</div><div class="tab" data-k="ath">Below all-time high</div></div>
+<div class="bar">
+ <label>Min % below <input id="min" type="number" value="0" step="1"></label>
+ <label>Max % below <input id="max" type="number" value="10" step="1"></label>
+ <label id="basisw">"Crossed above" test <select id="basis"><option value="close">Closing price</option><option value="high">Intraday high</option></select></label>
+ <label id="exclw" class="hide"><input id="excl" type="checkbox" checked> Exclude new/recent ATH (ATH must be &ge;52 weeks old and price below it)</label>
+ <input id="q" placeholder="Filter symbol/name"><button id="csv">CSV</button>
+</div>
+<div id="warn"></div><div id="st">Loading…</div>
+<div class="wrap"><table><thead><tr id="hd"></tr></thead><tbody id="tb"></tbody></table></div>
+</main>
+<script src="scan.js"></script>
+<script>
+let kind="listing",rows=[],sk="pct",sd=1,meta={},stocks={};const $=id=>document.getElementById(id);
+const COLS={listing:[["symbol","Symbol"],["name","Company"],["first_date","Data from"],["listing","Listing px"],["last","Last"],["pct","% below listing"],["ath","ATH"],["ath_date","ATH date"]],
+ath:[["symbol","Symbol"],["name","Company"],["ath","ATH"],["ath_date","ATH date"],["ath_age_days","ATH age (d)"],["last","Last"],["pct","% below ATH"],["listing","Listing px"]]};
+function compute(){rows=runScan(stocks,kind,{min:+$("min").value,max:+$("max").value,basis:$("basis").value,excl:$("excl").checked});render()}
+function render(){
+ $("hd").innerHTML=COLS[kind].map(c=>`<th data-c="${c[0]}">${c[1]}${sk==c[0]?(sd>0?" ▲":" ▼"):""}</th>`).join("");
+ const q=$("q").value.toLowerCase();
+ const r=rows.filter(x=>!q||x.symbol.toLowerCase().includes(q)||(x.name||"").toLowerCase().includes(q)).sort((a,b)=>(a[sk]>b[sk]?1:a[sk]<b[sk]?-1:0)*sd);
+ $("tb").innerHTML=r.map(x=>"<tr>"+COLS[kind].map(c=>{let v=x[c[0]];
+  if(c[0]=="symbol")return `<td><a target="_blank" rel="noopener" href="https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(v)}">${v}</a></td>`;
+  if(typeof v=="number")v=c[0]=="ath_age_days"?v:v.toFixed(2);return `<td>${v??""}</td>`}).join("")+"</tr>").join("");
+ $("hd").querySelectorAll("th").forEach(t=>t.onclick=()=>{const c=t.dataset.c;sd=sk==c?-sd:1;sk=c;render()});
+ $("st").textContent=`${r.length} matches · ${Object.keys(stocks).length} stocks tracked · latest price date ${meta.latest||"?"} · built ${meta.updated||"?"}`;
+}
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));t.classList.add("on");kind=t.dataset.k;
+ $("basisw").classList.toggle("hide",kind!="listing");$("exclw").classList.toggle("hide",kind!="ath");sk="pct";sd=1;compute()});
+["min","max","basis","excl"].forEach(i=>$(i).onchange=compute);$("q").oninput=render;
+$("csv").onclick=()=>{const h=COLS[kind].map(c=>c[0]);const t=[h.join(",")].concat(rows.map(r=>h.map(k=>JSON.stringify(r[k]??"")).join(","))).join("\n");
+ const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([t],{type:"text/csv"}));a.download=kind+"_scan.csv";a.click()};
+fetch("stocks.json?t="+Date.now()).then(r=>r.json()).then(j=>{stocks=j.stocks||{};
+ meta={updated:j.updated,latest:Object.values(stocks).reduce((m,v)=>v.last_date>m?v.last_date:m,"")};
+ const w=[];if(!j.complete)w.push("Initial history build is still in progress, so the list is incomplete until it finishes.");
+ if(j.updated&&Date.now()-Date.parse(j.updated)>4*864e5)w.push("Data is more than 4 days old; the scheduled job may be failing.");
+ $("warn").textContent=w.join(" ");compute()}).catch(e=>{$("st").textContent="No data yet. Run the 'Scan NSE' workflow once (see README)."});
+</script></body></html>

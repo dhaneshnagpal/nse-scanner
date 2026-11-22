@@ -1,0 +1,39 @@
+name: Scan NSE
+on:
+  schedule:
+    - cron: "45 11 * * 1-5"   # 17:15 IST on weekdays, after NSE close
+  workflow_dispatch:
+    inputs:
+      rebuild:
+        description: "Rebuild all history from scratch"
+        type: boolean
+        default: false
+permissions:
+  contents: write
+concurrency: scan
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Run scanner
+        run: python scanner.py --max-minutes 320 ${{ inputs.rebuild && '--rebuild' || '' }}
+      - name: Commit data
+        if: always()
+        run: |
+          git config user.name "scanner-bot"; git config user.email "bot@users.noreply.github.com"
+          git add docs/stocks.json
+          git diff --cached --quiet || (git commit -m "Update scan data" && git pull --rebase && git push)
+      - name: Re-trigger if history build incomplete
+        if: always()
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          python - <<'PY' && gh workflow run scan.yml || true
+          import json,sys
+          try: sys.exit(0 if not json.load(open("docs/stocks.json")).get("complete") else 1)
+          except Exception: sys.exit(1)
+          PY
